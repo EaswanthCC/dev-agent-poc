@@ -1,0 +1,204 @@
+#%RAML 1.0
+title: Salesforce System API
+version: v1
+baseUri: http://localhost:8081/api/v1
+
+mediaType: application/json
+
+types:
+  Lead:
+    type: object
+    properties:
+      Id?: string
+      FirstName?: string
+      LastName: string
+      Company: string
+      Email?: string
+      Phone?: string
+      Status?: string
+      LeadSource?: string
+      Description?: string
+  
+  LeadRequest:
+    type: object
+    properties:
+      FirstName?: string
+      LastName: string
+      Company: string
+      Email?: string
+      Phone?: string
+      Status?: string
+      LeadSource?: string
+      Description?: string
+  
+  Error:
+    type: object
+    properties:
+      message: string
+      code: number
+      details?: string
+
+/leads:
+  get:
+    description: Query Salesforce leads with optional filters
+    queryParameters:
+      limit?:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+        description: Maximum number of records to return
+      offset?:
+        type: integer
+        minimum: 0
+        default: 0
+        description: Number of records to skip
+      status?:
+        type: string
+        description: Filter by lead status
+      company?:
+        type: string
+        description: Filter by company name
+    responses:
+      200:
+        body:
+          application/json:
+            type: Lead[]
+            example: |
+              [
+                {
+                  "Id": "00QXX0000004C5OMAX",
+                  "FirstName": "John",
+                  "LastName": "Doe",
+                  "Company": "ACME Corp",
+                  "Email": "john.doe@acme.com",
+                  "Phone": "+1234567890",
+                  "Status": "Open - Not Contacted",
+                  "LeadSource": "Web"
+                }
+              ]
+      400:
+        body:
+          application/json:
+            type: Error
+      500:
+        body:
+          application/json:
+            type: Error
+
+  post:
+    description: Create a new lead in Salesforce
+    body:
+      application/json:
+        type: LeadRequest
+        example: |
+          {
+            "FirstName": "Jane",
+            "LastName": "Smith",
+            "Company": "TechCorp",
+            "Email": "jane.smith@techcorp.com",
+            "Phone": "+1987654321",
+            "Status": "Open - Not Contacted",
+            "LeadSource": "Web",
+            "Description": "Interested in our services"
+          }
+    responses:
+      201:
+        body:
+          application/json:
+            type: Lead
+            example: |
+              {
+                "Id": "00QXX0000004C5OMAX",
+                "FirstName": "Jane",
+                "LastName": "Smith",
+                "Company": "TechCorp",
+                "Email": "jane.smith@techcorp.com",
+                "Phone": "+1987654321",
+                "Status": "Open - Not Contacted",
+                "LeadSource": "Web",
+                "Description": "Interested in our services"
+              }
+      400:
+        body:
+          application/json:
+            type: Error
+      500:
+        body:
+          application/json:
+            type: Error
+
+  /{leadId}:
+    get:
+      description: Get a specific lead by ID
+      responses:
+        200:
+          body:
+            application/json:
+              type: Lead
+        404:
+          body:
+            application/json:
+              type: Error
+        500:
+          body:
+            application/json:
+              type: Error
+
+    put:
+      description: Update an existing lead
+      body:
+        application/json:
+          type: LeadRequest
+          example: |
+            {
+              "FirstName": "John",
+              "LastName": "Doe Updated",
+              "Company": "ACME Corp",
+              "Email": "john.doe.updated@acme.com",
+              "Status": "Qualified"
+            }
+      responses:
+        200:
+          body:
+            application/json:
+              type: Lead
+        400:
+          body:
+            application/json:
+              type: Error
+        404:
+          body:
+            application/json:
+              type: Error
+        500:
+          body:
+            application/json:
+              type: Error
+
+    delete:
+      description: Delete a lead by ID
+      responses:
+        204:
+          description: Lead successfully deleted
+        404:
+          body:
+            application/json:
+              type: Error
+        500:
+          body:
+            application/json:
+              type: Error
+
+/health:
+  get:
+    description: Health check endpoint
+    responses:
+      200:
+        body:
+          application/json:
+            example: |
+              {
+                "status": "UP",
+                "salesforce": "Connected"
+              }

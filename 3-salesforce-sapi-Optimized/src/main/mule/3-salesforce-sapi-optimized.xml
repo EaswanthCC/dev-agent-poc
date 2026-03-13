@@ -1,0 +1,516 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" 
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd">
+
+    <!-- Main API Flow -->
+    <flow name="salesforce-account-sapi-main" doc:id="salesforce-account-sapi-main">
+        <http:listener doc:name="HTTP Listener" 
+                       config-ref="HTTP_Listener_config" 
+                       path="/api/*" 
+                       doc:id="http-listener" />
+        <apikit:router config-ref="salesforce-account-sapi-config" doc:name="APIkit Router" doc:id="apikit-router" />
+        <error-handler>
+            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" type="APIKIT:BAD_REQUEST">
+                <ee:transform doc:name="Bad Request Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  code: "BAD_REQUEST",
+  message: "Invalid request format or parameters",
+  timestamp: now(),
+  correlationId: correlationId
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">400</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" type="APIKIT:NOT_FOUND">
+                <ee:transform doc:name="Not Found Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  code: "NOT_FOUND",
+  message: "Resource not found",
+  timestamp: now(),
+  correlationId: correlationId
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">404</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" type="APIKIT:METHOD_NOT_ALLOWED">
+                <ee:transform doc:name="Method Not Allowed Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  code: "METHOD_NOT_ALLOWED",
+  message: "Method not allowed for this resource",
+  timestamp: now(),
+  correlationId: correlationId
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">405</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+
+    <!-- Get All Accounts Flow -->
+    <flow name="get:\accounts:salesforce-account-sapi-config" doc:id="get-accounts-flow">
+        <logger level="INFO" doc:name="Log Request" message="Retrieving accounts - Correlation ID: #[correlationId], Query Params: #[attributes.queryParams]" />
+        
+        <ee:transform doc:name="Prepare Query Parameters">
+            <ee:variables>
+                <ee:set-variable variableName="limit"><![CDATA[%dw 2.0
+output application/java
+---
+attributes.queryParams.limit default 50]]></ee:set-variable>
+                <ee:set-variable variableName="offset"><![CDATA[%dw 2.0
+output application/java
+---
+attributes.queryParams.offset default 0]]></ee:set-variable>
+                <ee:set-variable variableName="typeFilter"><![CDATA[%dw 2.0
+output application/java
+---
+attributes.queryParams."type"]]></ee:set-variable>
+                <ee:set-variable variableName="industryFilter"><![CDATA[%dw 2.0
+output application/java
+---
+attributes.queryParams.industry]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        
+        <ee:transform doc:name="Build SOQL Query">
+            <ee:variables>
+                <ee:set-variable variableName="soqlQuery"><![CDATA[%dw 2.0
+output application/java
+var baseQuery = "SELECT Id, Name, AccountNumber, Type, Industry, BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry, ShippingStreet, ShippingCity, ShippingState, ShippingPostalCode, ShippingCountry, Phone, Website, OwnerId, CreatedDate, LastModifiedDate FROM Account"
+var whereConditions = []
+var typeCondition = if (!isEmpty(vars.typeFilter)) ["Type = '" ++ vars.typeFilter ++ "'"] else []
+var industryCondition = if (!isEmpty(vars.industryFilter)) ["Industry = '" ++ vars.industryFilter ++ "'"] else []
+var allConditions = typeCondition ++ industryCondition
+var whereClause = if (!isEmpty(allConditions)) " WHERE " ++ (allConditions joinBy " AND ") else ""
+var limitClause = " LIMIT " ++ vars.limit as String
+var offsetClause = " OFFSET " ++ vars.offset as String
+---
+baseQuery ++ whereClause ++ limitClause ++ offsetClause]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+        
+        <salesforce:query doc:name="Query Accounts" config-ref="Salesforce_Config">
+            <salesforce:salesforce-query>#[vars.soqlQuery]</salesforce:salesforce-query>
+        </salesforce:query>
+        
+        <ee:transform doc:name="Transform to API Response">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload map {
+    Id: $.Id,
+    Name: $.Name,
+    AccountNumber: $.AccountNumber,
+    Type: $.Type,
+    Industry: $.Industry,
+    BillingAddress: {
+        street: $.BillingStreet,
+        city: $.BillingCity,
+        state: $.BillingState,
+        postalCode: $.BillingPostalCode,
+        country: $.BillingCountry
+    } unless ($.BillingStreet == null and $.BillingCity == null and $.BillingState == null and $.BillingPostalCode == null and $.BillingCountry == null),
+    ShippingAddress: {
+        street: $.ShippingStreet,
+        city: $.ShippingCity,
+        state: $.ShippingState,
+        postalCode: $.ShippingPostalCode,
+        country: $.ShippingCountry
+    } unless ($.ShippingStreet == null and $.ShippingCity == null and $.ShippingState == null and $.ShippingPostalCode == null and $.ShippingCountry == null),
+    Phone: $.Phone,
+    Website: $.Website,
+    OwnerId: $.OwnerId,
+    CreatedDate: $.CreatedDate,
+    LastModifiedDate: $.LastModifiedDate
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        
+        <logger level="INFO" doc:name="Log Success" message="Successfully retrieved #[sizeOf(payload)] accounts - Correlation ID: #[correlationId]" />
+    </flow>
+
+    <!-- Get Account by ID Flow -->
+    <flow name="get:\accounts\(id):salesforce-account-sapi-config" doc:id="get-account-by-id-flow">
+        <logger level="INFO" doc:name="Log Request" message="Retrieving account by ID: #[attributes.uriParams.id] - Correlation ID: #[correlationId]" />
+        
+        <salesforce:query doc:name="Query Account by ID" config-ref="Salesforce_Config">
+            <salesforce:salesforce-query>SELECT Id, Name, AccountNumber, Type, Industry, BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry, ShippingStreet, ShippingCity, ShippingState, ShippingPostalCode, ShippingCountry, Phone, Website, OwnerId, CreatedDate, LastModifiedDate FROM Account WHERE Id = '#[attributes.uriParams.id]'</salesforce:salesforce-query>
+        </salesforce:query>
+        
+        <choice doc:name="Check if Account Found">
+            <when expression="#[sizeOf(payload) == 0]">
+                <logger level="WARN" doc:name="Log Not Found" message="Account not found with ID: #[attributes.uriParams.id] - Correlation ID: #[correlationId]" />
+                <ee:transform doc:name="Account Not Found Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  code: "ACCOUNT_NOT_FOUND",
+  message: "Account not found with ID: " ++ attributes.uriParams.id,
+  timestamp: now(),
+  correlationId: correlationId
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">404</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+                <raise-error doc:name="Raise Not Found Error" type="CUSTOM:NOT_FOUND"/>
+            </when>
+            <otherwise>
+                <ee:transform doc:name="Transform to API Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    Id: payload[0].Id,
+    Name: payload[0].Name,
+    AccountNumber: payload[0].AccountNumber,
+    Type: payload[0].Type,
+    Industry: payload[0].Industry,
+    BillingAddress: {
+        street: payload[0].BillingStreet,
+        city: payload[0].BillingCity,
+        state: payload[0].BillingState,
+        postalCode: payload[0].BillingPostalCode,
+        country: payload[0].BillingCountry
+    } unless (payload[0].BillingStreet == null and payload[0].BillingCity == null and payload[0].BillingState == null and payload[0].BillingPostalCode == null and payload[0].BillingCountry == null),
+    ShippingAddress: {
+        street: payload[0].ShippingStreet,
+        city: payload[0].ShippingCity,
+        state: payload[0].ShippingState,
+        postalCode: payload[0].ShippingPostalCode,
+        country: payload[0].ShippingCountry
+    } unless (payload[0].ShippingStreet == null and payload[0].ShippingCity == null and payload[0].ShippingState == null and payload[0].ShippingPostalCode == null and payload[0].ShippingCountry == null),
+    Phone: payload[0].Phone,
+    Website: payload[0].Website,
+    OwnerId: payload[0].OwnerId,
+    CreatedDate: payload[0].CreatedDate,
+    LastModifiedDate: payload[0].LastModifiedDate
+}]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+                <logger level="INFO" doc:name="Log Success" message="Successfully retrieved account: #[payload.Name] - Correlation ID: #[correlationId]" />
+            </otherwise>
+        </choice>
+    </flow>
+
+    <!-- Create Account Flow -->
+    <flow name="post:\accounts:application\json:salesforce-account-sapi-config" doc:id="create-account-flow">
+        <logger level="INFO" doc:name="Log Request" message="Creating new account: #[payload.Name] - Correlation ID: #[correlationId]" />
+        
+        <ee:transform doc:name="Transform to Salesforce Format">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+{
+    Name: payload.Name,
+    AccountNumber: payload.AccountNumber,
+    Type: payload.Type,
+    Industry: payload.Industry,
+    BillingStreet: payload.BillingAddress.street,
+    BillingCity: payload.BillingAddress.city,
+    BillingState: payload.BillingAddress.state,
+    BillingPostalCode: payload.BillingAddress.postalCode,
+    BillingCountry: payload.BillingAddress.country,
+    ShippingStreet: payload.ShippingAddress.street,
+    ShippingCity: payload.ShippingAddress.city,
+    ShippingState: payload.ShippingAddress.state,
+    ShippingPostalCode: payload.ShippingAddress.postalCode,
+    ShippingCountry: payload.ShippingAddress.country,
+    Phone: payload.Phone,
+    Website: payload.Website
+} filterObject (value, key) -> value != null]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        
+        <salesforce:create doc:name="Create Account" config-ref="Salesforce_Config" type="Account">
+            <salesforce:records><![CDATA[#[payload]]]></salesforce:records>
+        </salesforce:create>
+        
+        <choice doc:name="Check Creation Success">
+            <when expression="#[payload[0].success == true]">
+                <ee:transform doc:name="Store Account ID">
+                    <ee:variables>
+                        <ee:set-variable variableName="accountId">#[payload[0].id]</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+                
+                <salesforce:query doc:name="Query Created Account" config-ref="Salesforce_Config">
+                    <salesforce:salesforce-query>SELECT Id, Name, AccountNumber, Type, Industry, BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry, ShippingStreet, ShippingCity, ShippingState, ShippingPostalCode, ShippingCountry, Phone, Website, OwnerId, CreatedDate, LastModifiedDate FROM Account WHERE Id = '#[vars.accountId]'</salesforce:salesforce-query>
+                </salesforce:query>
+                
+                <ee:transform doc:name="Transform to API Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    Id: payload[0].Id,
+    Name: payload[0].Name,
+    AccountNumber: payload[0].AccountNumber,
+    Type: payload[0].Type,
+    Industry: payload[0].Industry,
+    BillingAddress: {
+        street: payload[0].BillingStreet,
+        city: payload[0].BillingCity,
+        state: payload[0].BillingState,
+        postalCode: payload[0].BillingPostalCode,
+        country: payload[0].BillingCountry
+    } unless (payload[0].BillingStreet == null and payload[0].BillingCity == null and payload[0].BillingState == null and payload[0].BillingPostalCode == null and payload[0].BillingCountry == null),
+    ShippingAddress: {
+        street: payload[0].ShippingStreet,
+        city: payload[0].ShippingCity,
+        state: payload[0].ShippingState,
+        postalCode: payload[0].ShippingPostalCode,
+        country: payload[0].ShippingCountry
+    } unless (payload[0].ShippingStreet == null and payload[0].ShippingCity == null and payload[0].ShippingState == null and payload[0].ShippingPostalCode == null and payload[0].ShippingCountry == null),
+    Phone: payload[0].Phone,
+    Website: payload[0].Website,
+    OwnerId: payload[0].OwnerId,
+    CreatedDate: payload[0].CreatedDate,
+    LastModifiedDate: payload[0].LastModifiedDate
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">201</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+                
+                <logger level="INFO" doc:name="Log Success" message="Successfully created account: #[payload.Name] with ID: #[payload.Id] - Correlation ID: #[correlationId]" />
+            
+</when>
+            <otherwise>
+                <logger level="ERROR" doc:name="Log Creation Error" message="Failed to create account: #[payload[0].errors[0].message] - Correlation ID: #[correlationId]" />
+                <ee:transform doc:name="Creation Error Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  code: "ACCOUNT_CREATION_FAILED",
+  message: payload[0].errors[0].message,
+  timestamp: now(),
+  correlationId: correlationId
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">400</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+                <raise-error doc:name="Raise Creation Error" type="CUSTOM:CREATION_FAILED"/>
+            </otherwise>
+        </choice>
+    </flow>
+
+    <!-- Update Account Flow -->
+    <flow name="patch:\accounts\(id):application\json:salesforce-account-sapi-config" doc:id="update-account-flow">
+        <logger level="INFO" doc:name="Log Request" message="Updating account ID: #[attributes.uriParams.id] - Correlation ID: #[correlationId]" />
+        
+        <!-- First check if account exists -->
+        <salesforce:query doc:name="Check Account Exists" config-ref="Salesforce_Config">
+            <salesforce:salesforce-query>SELECT Id FROM Account WHERE Id = '#[attributes.uriParams.id]'</salesforce:salesforce-query>
+        </salesforce:query>
+        
+        <choice doc:name="Check if Account Exists">
+            <when expression="#[sizeOf(payload) == 0]">
+                <logger level="WARN" doc:name="Log Not Found" message="Account not found with ID: #[attributes.uriParams.id] - Correlation ID: #[correlationId]" />
+                <ee:transform doc:name="Account Not Found Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  code: "ACCOUNT_NOT_FOUND",
+  message: "Account not found with ID: " ++ attributes.uriParams.id,
+  timestamp: now(),
+  correlationId: correlationId
+}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">404</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+                <raise-error doc:name="Raise Not Found Error" type="CUSTOM:NOT_FOUND"/>
+            </when>
+            <otherwise>
+                <ee:transform doc:name="Transform Update Data">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+{
+    Id: attributes.uriParams.id,
+    Name: payload.Name,
+    AccountNumber: payload.AccountNumber,
+    Type: payload.Type,
+    Industry: payload.Industry,
+    BillingStreet: payload.BillingAddress.street,
+    BillingCity: payload.BillingAddress.city,
+    BillingState: payload.BillingAddress.state,
+    BillingPostalCode: payload.BillingAddress.postalCode,
+    BillingCountry: payload.BillingAddress.country,
+    ShippingStreet: payload.ShippingAddress.street,
+    ShippingCity: payload.ShippingAddress.city,
+    ShippingState: payload.ShippingAddress.state,
+    ShippingPostalCode: payload.ShippingAddress.postalCode,
+    ShippingCountry: payload.ShippingAddress.country,
+    Phone: payload.Phone,
+    Website: payload.Website
+} filterObject (value, key) -> value != null]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+                
+                <salesforce:update doc:name="Update Account" config-ref="Salesforce_Config" type="Account">
+                    <salesforce:records><![CDATA[#[payload]]]></salesforce:records>
+                </salesforce:update>
+                
+                <choice doc:name="Check Update Success">
+                    <when expression="#[payload[0].success == true]">
+                        <salesforce:query doc:name="Query Updated Account" config-ref="Salesforce_Config">
+                            <salesforce:salesforce-query>SELECT Id, Name, AccountNumber, Type, Industry, BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry, ShippingStreet, ShippingCity, ShippingState, ShippingPostalCode, ShippingCountry, Phone, Website, OwnerId, CreatedDate, LastModifiedDate FROM Account WHERE Id = '#[attributes.uriParams.id]'</salesforce:salesforce-query>
+                        </salesforce:query>
+                        
+                        <ee:transform doc:name="Transform to API Response">
+                            <ee:message>
+                                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    Id: payload[0].Id,
+    Name: payload[0].Name,
+    AccountNumber: payload[0].AccountNumber,
+    Type: payload[0].Type,
+    Industry: payload[0].Industry,
+    BillingAddress: {
+        street: payload[0].BillingStreet,
+        city: payload[0].BillingCity,
+        state: payload[0].BillingState,
+        postalCode: payload[0].BillingPostalCode,
+        country: payload[0].BillingCountry
+    } unless (payload[0].BillingStreet == null and payload[0].BillingCity == null and payload[0].BillingState == null and payload[0].BillingPostalCode == null and payload[0].BillingCountry == null),
+    ShippingAddress: {
+        street: payload[0].ShippingStreet,
+        city: payload[0].ShippingCity,
+        state: payload[0].ShippingState,
+        postalCode: payload[0].ShippingPostalCode,
+        country: payload[0].ShippingCountry
+    } unless (payload[0].ShippingStreet == null and payload[0].ShippingCity == null and payload[0].ShippingState == null and payload[0].ShippingPostalCode == null and payload[0].ShippingCountry == null),
+    Phone: payload[0].Phone,
+    Website: payload[0].Website,
+    OwnerId: payload[0].OwnerId,
+    CreatedDate: payload[0].CreatedDate,
+    LastModifiedDate: payload[0].LastModifiedDate
+}]]></ee:set-payload>
+                            </ee:message>
+                        </ee:transform>
+                        
+                        <logger level="INFO" doc:name="Log Success" message="Successfully updated account: #[payload.Name] with ID: #[payload.Id] - Correlation ID: #[correlationId]" />
+                    </when>
+                    <otherwise>
+                        <logger level="ERROR" doc:name="Log Update Error" message="Failed to update account: #[payload[0].errors[0].message] - Correlation ID: #[correlationId]" />
+                        <ee:transform doc:name="Update Error Response">
+                            <ee:message>
+                                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  code: "ACCOUNT_UPDATE_FAILED",
+  message: payload[0].errors[0].message,
+  timestamp: now(),
+  correlationId: correlationId
+}]]></ee:set-payload>
+                            </ee:message>
+                            <ee:variables>
+                                <ee:set-variable variableName="httpStatus">400</ee:set-variable>
+                            </ee:variables>
+                        </ee:transform>
+                        <raise-error doc:name="Raise Update Error" type="CUSTOM:UPDATE_FAILED"/>
+                    </otherwise>
+                </choice>
+            </otherwise>
+        </choice>
+    </flow>
+
+    <!-- Health Check Flow -->
+    <flow name="get:\health:salesforce-account-sapi-config" doc:id="health-check-flow">
+        <logger level="INFO" doc:name="Log Health Check" message="Health check requested - Correlation ID: #[correlationId]" />
+        
+        <try doc:name="Test Salesforce Connection">
+            <salesforce:query doc:name="Test Query" config-ref="Salesforce_Config">
+                <salesforce:salesforce-query>SELECT Id FROM Account LIMIT 1</salesforce:salesforce-query>
+            </salesforce:query>
+            
+            <ee:transform doc:name="Healthy Response">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  status: "UP",
+  timestamp: now(),
+  salesforceConnection: "CONNECTED"
+}]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+            
+            <error-handler>
+                <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" type="ANY">
+                    <logger level="ERROR" doc:name="Log Connection Error" message="Salesforce connection failed during health check - Correlation ID: #[correlationId]" />
+                    <ee:transform doc:name="Unhealthy Response">
+                        <ee:message>
+                            <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  status: "DOWN",
+  timestamp: now(),
+  salesforceConnection: "DISCONNECTED",
+  error: error.description default "Unable to connect to Salesforce"
+}]]></ee:set-payload>
+                        </ee:message>
+                        <ee:variables>
+                            <ee:set-variable variableName="httpStatus">503</ee:set-variable>
+                        </ee:variables>
+                    </ee:transform>
+                </on-error-propagate>
+            </error-handler>
+        </try>
+    </flow>
+
+</mule>

@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="urn:mulesoft.org:mule:documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+
+	<!-- APIKit Configuration -->
+	<apikit:config name="salesforce-sapi-config" api="salesforce-sapi.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus" />
+
+	<!-- Main API Flow -->
+	<flow name="salesforce-sapi-main">
+		<http:listener doc:name="Listener" doc:id="http-listener-main" config-ref="HTTP_Listener_config" path="/api/v1/*"/>
+		<apikit:router doc:name="APIkit Router" doc:id="apikit-router" config-ref="salesforce-sapi-config" />
+		<error-handler ref="globalErrorHandler" />
+	</flow>
+
+	<!-- Health Check Flow -->
+	<flow name="get:\health:salesforce-sapi-config">
+		<logger level="INFO" doc:name="Log Health Check Request" doc:id="log-health-request" message="Health check endpoint called"/>
+		<try doc:name="Try Health Check" doc:id="try-health-check">
+			<salesforce:query doc:name="Test Salesforce Connection" doc:id="sf-health-check" config-ref="Salesforce_Config">
+				<salesforce:salesforce-query>SELECT Id FROM Lead LIMIT 1</salesforce:salesforce-query>
+			</salesforce:query>
+			<set-payload value='{"status": "UP", "salesforce": "Connected", "timestamp": "#[now()]"}' doc:name="Set Healthy Response" doc:id="set-health-response" mimeType="application/json"/>
+			<error-handler>
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="health-error-handler">
+					<set-payload value='{"status": "DOWN", "salesforce": "Disconnected", "timestamp": "#[now()]", "error": "#[error.description]"}' doc:name="Set Unhealthy Response" doc:id="set-unhealthy-response" mimeType="application/json"/>
+					<set-variable value="503" doc:name="Set HTTP Status" doc:id="set-health-error-status" variableName="httpStatus"/>
+				</on-error-continue>
+			</error-handler>
+		</try>
+	</flow>
+
+	<!-- Get All Leads Flow -->
+	<flow name="get:\leads:salesforce-sapi-config">
+		<logger level="INFO" doc:name="Log Query Leads Request" doc:id="log-query-request" message="Query leads request received with parameters: #[attributes.queryParams]"/>
+		<set-variable value="#[attributes.queryParams.limit default 50]" doc:name="Set Limit Variable" doc:id="set-limit-var" variableName="limit"/>
+		<set-variable value="#[attributes.queryParams.offset default 0]" doc:name="Set Offset Variable" doc:id="set-offset-var" variableName="offset"/>
+		<set-variable value="#[attributes.queryParams.status]" doc:name="Set Status Filter" doc:id="set-status-filter" variableName="statusFilter"/>
+		<set-variable value="#[attributes.queryParams.company]" doc:name="Set Company Filter" doc:id="set-company-filter" variableName="companyFilter"/>
+		
+		<ee:transform doc:name="Build SOQL Query" doc:id="build-soql-query">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+var baseQuery = "SELECT Id, FirstName, LastName, Company, Email, Phone, Status, LeadSource, Description FROM Lead"
+var whereConditions = []
+var statusCondition = if (!isEmpty(vars.statusFilter)) ["Status = '" ++ vars.statusFilter ++ "'"] else []
+var companyCondition = if (!isEmpty(vars.companyFilter)) ["Company LIKE '%" ++ vars.companyFilter ++ "%'"] else []
+var allConditions = statusCondition ++ companyCondition
+var whereClause = if (!isEmpty(allConditions)) " WHERE " ++ (allConditions joinBy " AND ") else ""
+var limitClause = " LIMIT " ++ vars.limit as String
+var offsetClause = if (vars.offset > 0) " OFFSET " ++ vars.offset as String else ""
+---
+baseQuery ++ whereClause ++ limitClause ++ offsetClause]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		
+		<salesforce:query doc:name="Query Leads" doc:id="query-leads" config-ref="Salesforce_Config">
+			<salesforce:salesforce-query>#[payload]</salesforce:salesforce-query>
+		</salesforce:query>
+		
+		<ee:transform doc:name="Transform Response" doc:id="transform-leads-response">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload map (item, index) -> {
+	Id: item.Id,
+	FirstName: item.FirstName,
+	LastName: item.LastName,
+	Company: item.Company,
+	Email: item.Email,
+	Phone: item.Phone,
+	Status: item.Status,
+	LeadSource: item.LeadSource,
+	Description: item.Description
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		
+		<logger level="INFO" doc:name="Log Success" doc:id="log-query-success" message="Successfully retrieved #[sizeOf(payload)] leads"/>
+	</flow>
+
+	<!-- Get Lead By ID Flow -->
+	<flow name="get:\leads\(leadId):salesforce-sapi-config">
+		<logger level="INFO" doc:name="Log Get Lead Request" doc:id="log-get-request" message="Get lead by ID request received for ID: #[attributes.uriParams.leadId]"/>
+		<set-variable value="#[attributes.uriParams.leadId]" doc:name="Set Lead ID Variable" doc:id="set-leadid-var" variableName="leadId"/>
+		
+		<salesforce:query doc:name="Query Lead By ID" doc:id="query-lead-by-id" config-ref="Salesforce_Config">
+			<salesforce:salesforce-query>SELECT Id, FirstName, LastName, Company, Email, Phone, Status, LeadSource, Description FROM Lead WHERE Id = '#[vars.leadId]'</salesforce:salesforce-query>
+		</salesforce:query>
+		
+		<choice doc:name="Check If Lead Found" doc:id="check-lead-found">
+			<when expression="#[sizeOf(payload) > 0]">
+				<ee:transform doc:name="Transform Single Lead Response" doc:id="transform-single-lead">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	Id: payload[0].Id,
+	FirstName: payload[0].FirstName,
+	LastName: payload[0].LastName,
+	Company: payload[0].Company,
+	Email: payload[0].Email,
+	Phone: payload[0].Phone,
+	Status: payload[0].Status,
+	LeadSource: payload[0].LeadSource,
+	Description: payload[0].Description
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<logger level="INFO" doc:name="Log Found Lead" doc:id="log-found-lead" message="Successfully retrieved lead with ID: #[vars.leadId]"/>
+			</when>
+			<otherwise>
+				<logger level="WARN" doc:name="Log Lead Not Found" doc:id="log-not-found" message="Lead not found with ID: #[vars.leadId]"/>
+				<set-payload value='{"message": "Lead not found", "code": 404, "details": "No lead found with the specified ID"}' doc:name="Set Not Found Response" doc:id="set-not-found-response" mimeType="application/json"/>
+				<set-variable value="404" doc:name="Set HTTP Status" doc:id="set-not-found-status" variableName="httpStatus"/>
+			</otherwise>
+		</choice>
+	</flow>
+
+	<!-- Create Lead Flow -->
+	<flow name="post:\leads:application\json:salesforce-sapi-config">
+		<logger level="INFO" doc:name="Log Create Lead Request" doc:id="log-create-request" message="Create lead request received"/>
+		
+		<ee:transform doc:name="Transform Request to Salesforce Format" doc:id="transform-create-request">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+{
+	FirstName: payload.FirstName,
+	LastName: payload.LastName,
+	Company: payload.Company,
+	Email: payload.Email,
+	Phone: payload.Phone,
+	Status: payload.Status default "Open - Not Contacted",
+	LeadSource: payload.LeadSource,
+	Description: payload.Description
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		
+		<salesforce:create type="Lead" doc:name="Create Lead" doc:id="create-lead" config-ref="Salesforce_Config">
+			<salesforce:records>#[payload]</salesforce:records>
+		</salesforce:create>
+		
+		<choice doc:name="Check Create Result" doc:id="check-create-result">
+			<when expression="#[payload.successful]">
+				<set-variable value="#[payload.id]" doc:name="Set Created Lead ID" doc:id="set-created-id" variableName="createdLeadId"/>
+				
+				<salesforce:query doc:name="Query Created Lead" doc:id="query-created-lead" config-ref="Salesforce_Config">
+					<salesforce:salesforce-query>SELECT Id, FirstName, LastName, Company, Email, Phone, Status, LeadSource, Description FROM Lead WHERE Id = '#[vars.createdLeadId]'</salesforce:salesforce-query>
+				</salesforce:query>
+				
+				<ee:transform doc:name="Transform Created Lead Response" doc:id="transform-created-response">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	Id: payload[0].Id,
+	FirstName: payload[0].FirstName,
+	LastName: payload[0].LastName,
+	Company: payload[0].Company,
+	Email: payload[0].Email,
+	Phone: payload[0].Phone,
+	Status: payload[0].Status,
+	LeadSource: payload[0].LeadSource,
+	Description: payload[0].Description
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				
+				<set-variable value="201" doc:name="Set Created Status" doc:id="set-created-status" variableName="httpStatus"/>
+				<logger level="INFO" doc:name="Log Create Success" doc:id="log-create-success" message="Successfully created lead with ID: #[vars.createdLeadId]"/>
+			</when>
+			<otherwise>
+				<logger level="ERROR" doc:name="Log Create Error" doc:id="log-create-error" message="Failed to create lead: #[payload.errors]"/>
+				<set-payload value='{"message": "Failed to create lead", "code": 400, "details": "#[payload.errors]"}' doc:name="Set Create Error Response" doc:id="set-create-error-response" mimeType="application/json"/>
+				<set-variable value="400" doc:name="Set Error Status" doc:id="set-create-error-status" variableName="httpStatus"/>
+			</otherwise>
+		</choice>
+	</flow>
+
+	<!-- Update Lead Flow -->
+	<flow name="put:\leads\(leadId):application\json:salesforce-sapi-config">
+		<logger level="INFO" doc:name="Log Update Lead Request" doc:id="log-update-request" message="Update lead request received for ID: #[attributes.uriParams.leadId]"/>
+		<set-variable value="#[attributes.uriParams.leadId]" doc:name="Set Lead ID Variable" doc:id="set-update-leadid-var" variableName="leadId"/>
+		
+		<ee:transform doc:name="Transform Update Request" doc:id="transform-update-request">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+---
+{
+	Id: vars.leadId,
+	FirstName: payload.FirstName,
+	LastName: payload.LastName,
+	Company: payload.Company,
+	Email: payload.Email,
+	Phone: payload.Phone,
+	Status: payload.Status,
+	LeadSource: payload.LeadSource,
+	Description: payload.Description
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		
+		<salesforce:update type="Lead" doc:name="Update Lead" doc:id="update-lead" config-ref="Salesforce_Config">
+			<salesforce:records>#[payload]</salesforce:records>
+		</salesforce:update>
+		
+		<choice doc:name="Check Update Result" doc:id="check-update-result">
+			<when expression="#[payload.successful]">
+				<salesforce:query doc:name="Query Updated Lead" doc:id="query-updated-lead" config-ref="Salesforce_Config">
+					<salesforce:salesforce-query>SELECT Id, FirstName, LastName, Company, Email, Phone, Status, LeadSource, Description FROM Lead WHERE Id = '#[vars.leadId]'</salesforce:salesforce-query>
+				</salesforce:query>
+				
+				<choice doc:name="Check If Updated Lead Exists" doc:id="check-updated-lead-exists">
+					<when expression="#[sizeOf(payload) > 0]">
+						<ee:transform doc:name="Transform Updated Lead Response" doc:id="transform-updated-response">
+							<ee:message>
+								<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	Id: payload[0].Id,
+	FirstName: payload[0].FirstName,
+	LastName: payload[0].LastName,
+	Company: payload[0].Company,
+	Email: payload[0].Email,
+	Phone: payload[0].Phone,
+	Status: payload[0].Status,
+	LeadSource: payload[0].LeadSource,
+	Description: payload[0].Description
+}]]></ee:set-payload>
+							</ee:message>
+						</ee:transform>
+						<logger level="INFO" doc:name="Log Update Success" doc:id="log-update-success" message="Successfully updated lead with ID: #[vars.leadId]"/>
+					</when>
+					<otherwise>
+						<logger level="WARN" doc:name="Log Lead Not Found After Update" doc:id="log-not-found-after-update" message="Lead not found after update with ID: #[vars.leadId]"/>
+						<set-payload value='{"message": "Lead not found", "code": 404, "details": "No lead found with the specified ID"}' doc:name="Set Update Not Found Response" doc:id="set-update-not-found-response" mimeType="application/json"/>
+						<set-variable value="404" doc:name="Set Update Not Found Status" doc:id="set-update-not-found-status" variableName="httpStatus"/>
+					</otherwise>
+				</choice>
+			</when>
+			<otherwise>
+				<logger level="ERROR" doc:name="Log Update Error" doc:id="log-update-error" message="Failed to update lead: #[payload.errors]"/>
+				<set-payload value='{"message": "Failed to update lead", "code": 400, "details": "#[payload.errors]"}' doc:name="Set Update Error Response" doc:id="set-update-error-response" mimeType="application/json"/>
+				<set-variable value="400" doc:name="Set Update Error Status" doc:id="set-update-error-status" variableName="httpStatus"/>
+			</otherwise>
+		</choice>
+	</flow>
+
+	<!-- Delete Lead Flow -->
+	<flow name="delete:\leads\(leadId):salesforce-sapi-config">
+		<logger level="INFO" doc:name="Log Delete Lead Request" doc:id="log-delete-request" message="Delete lead request received for ID: #[attributes.uriParams.leadId]"/>
+		<set-variable value="#[attributes.uriParams.leadId]" doc:name="Set Lead ID Variable" doc:id="set-delete-leadid-var" variableName="leadId"/>
+		
+		<!-- First check if lead exists -->
+		<salesforce:query doc:name="Check Lead Exists" doc:id="check-lead-exists-before-delete" config-ref="Salesforce_Config">
+			<salesforce:salesforce-query>SELECT Id FROM Lead WHERE Id = '#[vars.leadId]'</salesforce:salesforce-query>
+		</salesforce:query>
+		
+		<choice doc:name="Check If Lead Exists For Delete" doc:id="check-lead-exists-for-delete">
+			<when expression="#[sizeOf(payload) > 0]">
+				<salesforce:delete doc:name="Delete Lead" doc:id="delete-lead" config-ref="Salesforce_Config">
+					<salesforce:ids>#[[vars.leadId]]</salesforce:ids>
+				</salesforce:delete>
+				
+				<choice doc:name="Check Delete Result" doc:id="check-delete-result">
+					<when expression="#[payload[0].successful]">
+						<set-payload value="" doc:name="Set Empty Response" doc:id="set-empty-response"/>
+						<set-variable value="204" doc:name="Set No Content Status" doc:id="set-no-content-status" variableName="httpStatus"/>
+						<logger level="INFO" doc:name="Log Delete Success" doc:id="log-delete-success" message="Successfully deleted lead with ID: #[vars.leadId]"/>
+					</when>
+					<otherwise>
+						<logger level="ERROR" doc:name="Log Delete Error" doc:id="log-delete-error" message="Failed to delete lead: #[payload[0].errors]"/>
+						<set-payload value='{"message": "Failed to delete lead", "code": 400, "details": "#[payload[0].errors]"}' doc:name="Set Delete Error Response" doc:id="set-delete-error-response" mimeType="application/json"/>
+						<set-variable value="400" doc:name="Set Delete Error Status" doc:id="set-delete-error-status" variableName="httpStatus"/>
+					</otherwise>
+				</choice>
+			</when>
+			<otherwise>
+				<logger level="WARN" doc:name="Log Lead Not Found For Delete" doc:id="log-not-found-for-delete" message="Lead not found for deletion with ID: #[vars.leadId]"/>
+				<set-payload value='{"message": "Lead not found", "code": 404, "details": "No lead found with the specified ID"}' doc:name="Set Delete Not Found Response" doc:id="set-delete-not-found-response" mimeType="application/json"/>
+				<set-variable value="404" doc:name="Set Delete Not Found Status" doc:id="set-delete-not-found-status" variableName="httpStatus"/>
+			</otherwise>
+		</choice>
+	</flow>
+
+	<!-- APIKit Error Flows -->
+	<flow name="salesforce-sapi-console">
+		<http:listener doc:name="Listener" doc:id="console-listener" config-ref="HTTP_Listener_config" path="/console/*"/>
+		<apikit:console doc:name="APIkit Console" doc:id="apikit-console" config-ref="salesforce-sapi-config"/>
+		<error-handler ref="globalErrorHandler" />
+	</flow>
+	
+</mule>

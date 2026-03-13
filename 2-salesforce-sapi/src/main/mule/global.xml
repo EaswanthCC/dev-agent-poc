@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:secure-properties="http://www.mulesoft.org/schema/mule/secure-properties"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="urn:mulesoft.org:mule:documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/secure-properties http://www.mulesoft.org/schema/mule/secure-properties/current/mule-secure-properties.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+	
+	<!-- Configuration Properties -->
+	<configuration-properties file="config.properties" doc:name="Configuration properties" doc:id="df363c12-c07b-45c6-a2c4-2d8d5a1b9e7f" />
+	
+	<!-- HTTP Listener Configuration -->
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="a1b2c3d4-e5f6-7890-abcd-ef1234567890" >
+		<http:listener-connection host="0.0.0.0" port="${http.port}" />
+	</http:listener-config>
+	
+	<!-- Salesforce Configuration with OAuth 2.0 -->
+	<salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config" doc:id="sf1a2b3c-d4e5-f678-9012-345678901234" >
+		<salesforce:oauth-user-pass-connection username="${salesforce.username}" password="${salesforce.password}" securityToken="${salesforce.security.token}" consumerKey="${salesforce.consumer.key}" consumerSecret="${salesforce.consumer.secret}" />
+	</salesforce:sfdc-config>
+	
+	<!-- Error Handler Configuration -->
+	<error-handler name="globalErrorHandler" doc:id="error123-4567-8901-2345-678901234567">
+		<on-error-propagate type="SALESFORCE:CONNECTIVITY" enableNotifications="true" logException="true" doc:name="On Salesforce Connectivity Error" doc:id="err1-2345-6789-0123-456789012345">
+			<logger level="ERROR" doc:name="Log Salesforce Connectivity Error" doc:id="log1-2345-6789-0123-456789012345" message="#['Salesforce connectivity error: ' ++ error.description ++ ' - ' ++ error.detailedDescription]"/>
+			<set-payload value='#[{"message": "Salesforce service unavailable", "code": 503, "details": error.description}]' doc:name="Set Error Response" doc:id="set1-2345-6789-0123-456789012345" mimeType="application/json"/>
+			<set-variable value="503" doc:name="Set HTTP Status" doc:id="var1-2345-6789-0123-456789012345" variableName="httpStatus"/>
+		</on-error-propagate>
+		
+		<on-error-propagate type="SALESFORCE:INVALID_CREDENTIALS" enableNotifications="true" logException="true" doc:name="On Salesforce Invalid Credentials" doc:id="err2-2345-6789-0123-456789012345">
+			<logger level="ERROR" doc:name="Log Invalid Credentials Error" doc:id="log2-2345-6789-0123-456789012345" message="#['Salesforce authentication failed: ' ++ error.description]"/>
+			<set-payload value='#[{"message": "Authentication failed", "code": 401, "details": "Invalid Salesforce credentials"}]' doc:name="Set Auth Error Response" doc:id="set2-2345-6789-0123-456789012345" mimeType="application/json"/>
+			<set-variable value="401" doc:name="Set HTTP Status" doc:id="var2-2345-6789-0123-456789012345" variableName="httpStatus"/>
+		</on-error-propagate>
+		
+		<on-error-propagate type="SALESFORCE:OPERATION" enableNotifications="true" logException="true" doc:name="On Salesforce Operation Error" doc:id="err3-2345-6789-0123-456789012345">
+			<logger level="ERROR" doc:name="Log Operation Error" doc:id="log3-2345-6789-0123-456789012345" message="#['Salesforce operation error: ' ++ error.description ++ ' - Cause: ' ++ error.cause]"/>
+			<set-payload value='#[{"message": "Salesforce operation failed", "code": 400, "details": error.description}]' doc:name="Set Operation Error Response" doc:id="set3-2345-6789-0123-456789012345" mimeType="application/json"/>
+			<set-variable value="400" doc:name="Set HTTP Status" doc:id="var3-2345-6789-0123-456789012345" variableName="httpStatus"/>
+		</on-error-propagate>
+		
+		<on-error-propagate type="HTTP:BAD_REQUEST" enableNotifications="true" logException="true" doc:name="On Bad Request" doc:id="err4-2345-6789-0123-456789012345">
+			<logger level="WARN" doc:name="Log Bad Request" doc:id="log4-2345-6789-0123-456789012345" message="#['Bad request received: ' ++ error.description]"/>
+			<set-payload value='#[{"message": "Bad request", "code": 400, "details": "Invalid request format or parameters"}]' doc:name="Set Bad Request Response" doc:id="set4-2345-6789-0123-456789012345" mimeType="application/json"/>
+			<set-variable value="400" doc:name="Set HTTP Status" doc:id="var4-2345-6789-0123-456789012345" variableName="httpStatus"/>
+		</on-error-propagate>
+		
+		<on-error-propagate type="ANY" enableNotifications="true" logException="true" doc:name="On Any Error" doc:id="err5-2345-6789-0123-456789012345">
+			<logger level="ERROR" doc:name="Log Generic Error" doc:id="log5-2345-6789-0123-456789012345" message="#['Unexpected error occurred: ' ++ error.description ++ ' - Type: ' ++ error.errorType.asString()]"/>
+			<set-payload value='#[{"message": "Internal server error", "code": 500, "details": "An unexpected error occurred"}]' doc:name="Set Generic Error Response" doc:id="set5-2345-6789-0123-456789012345" mimeType="application/json"/>
+			<set-variable value="500" doc:name="Set HTTP Status" doc:id="var5-2345-6789-0123-456789012345" variableName="httpStatus"/>
+		</on-error-propagate>
+	</error-handler>
+
+</mule>

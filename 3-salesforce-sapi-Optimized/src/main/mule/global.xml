@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+      xmlns:api-gateway="http://www.mulesoft.org/schema/mule/api-gateway"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xmlns:secure-properties="http://www.mulesoft.org/schema/mule/secure-properties"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+        http://www.mulesoft.org/schema/mule/api-gateway http://www.mulesoft.org/schema/mule/api-gateway/current/mule-api-gateway.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+        http://www.mulesoft.org/schema/mule/secure-properties http://www.mulesoft.org/schema/mule/secure-properties/current/mule-secure-properties.xsd">
+
+    <!-- Configuration Properties -->
+    <configuration-properties file="config.properties" />
+    
+    <!-- Secure Properties Configuration -->
+    <secure-properties:config name="Secure_Properties_Config" file="secure-config.properties" key="${secure.key}" />
+    
+    <!-- HTTP Listener Configuration -->
+    <http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config">
+        <http:listener-connection host="${http.host}" port="${http.port}" />
+    </http:listener-config>
+    
+    <!-- Salesforce Configuration -->
+    <salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config">
+        <salesforce:basic-connection 
+            username="${sfdc.username}" 
+            password="${sfdc.password}" 
+            securityToken="${sfdc.token}" 
+            url="${sfdc.url}" />
+    </salesforce:sfdc-config>
+    
+    <!-- API Kit Configuration -->
+    <apikit:config name="salesforce-account-sapi-config" 
+                   raml="api/salesforce-account-sapi.raml" 
+                   outboundHeadersMapName="outboundHeaders" 
+                   httpStatusVarName="httpStatus" 
+                   doc:name="Router" />
+    
+    <!-- API Auto Discovery -->
+    <api-gateway:autodiscovery 
+        apiId="${api.id}" 
+        version="${api.version}" 
+        flowRef="salesforce-account-sapi-main" 
+        doc:name="API Autodiscovery" />
+        
+    <!-- Global Error Handler -->
+    <error-handler name="Global_Error_Handler" doc:name="Global Error Handler">
+        <on-error-propagate enableNotifications="true" logException="true" doc:name="On Error Propagate" type="ANY">
+            <ee:transform doc:name="Error Response Transform">
+                <ee:message>
+                    <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+  code: if (error.errorType.namespace == "SALESFORCE") "SFDC_ERROR" 
+        else if (error.errorType.namespace == "HTTP") "HTTP_ERROR" 
+        else "INTERNAL_ERROR",
+  message: error.description default "An unexpected error occurred",
+  timestamp: now(),
+  correlationId: correlationId
+}]]></ee:set-payload>
+                </ee:message>
+                <ee:variables>
+                    <ee:set-variable variableName="httpStatus"><![CDATA[%dw 2.0
+output application/java
+---
+if (error.errorType.namespace == "SALESFORCE") 
+  if (contains(error.description, "NOT_FOUND")) 404
+  else if (contains(error.description, "INVALID")) 400
+  else 500
+else if (error.errorType.namespace == "HTTP") 400
+else 500]]></ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+            <logger level="ERROR" doc:name="Log Error" message="Error occurred: #[error.description], Type: #[error.errorType], Correlation ID: #[correlationId]" />
+        </on-error-propagate>
+    </error-handler>
+    
+</mule>

@@ -1,0 +1,10 @@
+{
+  "modelVersion": "1.0.0",
+  "name": "1-basic-transformations",
+  "version": "1.0.0-SNAPSHOT",
+  "source": "file:///c:/Users/Caelius/Downloads/dev-agent-poc/1-basic-transformations/pom.xml",
+  "natures": [
+    "mule"
+  ],
+  "components": []
+}

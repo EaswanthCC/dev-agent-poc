@@ -1,0 +1,380 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" 
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" 
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit" 
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools" 
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd 
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd 
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+
+    <munit:config name="3-salesforce-sapi-optimized-test-suite.xml"/>
+
+    <!-- Test GET /accounts with default parameters -->
+    <munit:test name="get-accounts-default-params-success" description="Test the GET /accounts flow with default parameters, mock Salesforce query, and verify response transformation">
+        <munit:behavior>
+            <munit:set-event>
+                <munit:payload value="#[[]]"/>
+                <munit:attributes value='#[{
+                  queryParams: {}
+                }]'/>
+            </munit:set-event>
+
+            <munit-tools:mock-when processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref" whereValue="Salesforce_Config"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value='#[[
+                      {
+                        Id: "001xx000003DGbTAAW",
+                        Name: "Acme Corp",
+                        AccountNumber: "A-1001",
+                        Type: "Customer",
+                        Industry: "Manufacturing",
+                        BillingStreet: "1 Main St",
+                        BillingCity: "San Francisco",
+                        BillingState: "CA",
+                        BillingPostalCode: "94105",
+                        BillingCountry: "US",
+                        ShippingStreet: "2 Main St",
+                        ShippingCity: "San Francisco",
+                        ShippingState: "CA",
+                        ShippingPostalCode: "94107",
+                        ShippingCountry: "US",
+                        Phone: "415-555-0100",
+                        Website: "https://acme.example.com",
+                        OwnerId: "005xx000001Sv6lAAC",
+                        CreatedDate: "2023-01-01T10:00:00.000Z",
+                        LastModifiedDate: "2023-06-01T10:00:00.000Z"
+                      },
+                      {
+                        Id: "001xx000003DGbUAAW",
+                        Name: "Globex",
+                        AccountNumber: "A-1002",
+                        Type: "Partner",
+                        Industry: "Technology",
+                        BillingStreet: null,
+                        BillingCity: null,
+                        BillingState: null,
+                        BillingPostalCode: null,
+                        BillingCountry: null,
+                        ShippingStreet: null,
+                        ShippingCity: null,
+                        ShippingState: null,
+                        ShippingPostalCode: null,
+                        ShippingCountry: null,
+                        Phone: "415-555-0101",
+                        Website: "https://globex.example.com",
+                        OwnerId: "005xx000001Sv6mAAC",
+                        CreatedDate: "2023-02-01T10:00:00.000Z",
+                        LastModifiedDate: "2023-06-05T10:00:00.000Z"
+                      }
+                    ]]'/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="get:\accounts:salesforce-account-sapi-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload]" is="#[MunitTools::notNullValue()]"/>
+            <munit-tools:assert-that expression="#[sizeOf(payload)]" is="#[MunitTools::greaterThan(0)]"/>
+            <munit-tools:assert-equals actual="#[payload[0].Name]" expected="Acme Corp"/>
+            <munit-tools:assert-equals actual="#[payload[1].Name]" expected="Globex"/>
+            <munit-tools:assert-equals actual="#[payload[0].BillingAddress.city]" expected="San Francisco"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test GET /accounts/{id} with valid ID -->
+    <munit:test name="get-account-by-id-success" description="Test the GET /accounts/{id} flow with valid account ID">
+        <munit:behavior>
+            <munit:set-event>
+                <munit:payload value="#[[]]"/>
+                <munit:attributes value='#[{
+                  uriParams: {
+                    id: "001xx000003DGbTAAW"
+                  }
+                }]'/>
+            </munit:set-event>
+
+            <munit-tools:mock-when processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref" whereValue="Salesforce_Config"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value='#[[
+                      {
+                        Id: "001xx000003DGbTAAW",
+                        Name: "Acme Corp",
+                        AccountNumber: "A-1001",
+                        Type: "Customer - Direct",
+                        Industry: "Technology",
+                        BillingStreet: "123 Main St",
+                        BillingCity: "San Francisco",
+                        BillingState: "CA",
+                        BillingPostalCode: "94105",
+                        BillingCountry: "USA",
+                        ShippingStreet: "123 Main St",
+                        ShippingCity: "San Francisco",
+                        ShippingState: "CA",
+                        ShippingPostalCode: "94105",
+                        ShippingCountry: "USA",
+                        Phone: "+1-555-123-4567",
+                        Website: "https://www.acme.com",
+                        OwnerId: "0053000001A1B2C3",
+                        CreatedDate: "2024-01-15T10:30:00",
+                        LastModifiedDate: "2024-02-20T14:45:00"
+                      }
+                    ]]'/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="get:\accounts\(id):salesforce-account-sapi-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload]" is="#[MunitTools::notNullValue()]"/>
+            <munit-tools:assert-equals actual="#[payload.Id]" expected="001xx000003DGbTAAW"/>
+            <munit-tools:assert-equals actual="#[payload.Name]" expected="Acme Corp"/>
+            <munit-tools:assert-equals actual="#[payload.BillingAddress.city]" expected="San Francisco"/>
+            <munit-tools:assert-equals actual="#[payload.ShippingAddress.city]" expected="San Francisco"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test GET /accounts/{id} with invalid ID (not found) -->
+    <munit:test name="get-account-by-id-not-found" description="Test the GET /accounts/{id} flow with non-existent account ID">
+        <munit:behavior>
+            <munit:set-event>
+                <munit:payload value="#[[]]"/>
+                <munit:attributes value='#[{
+                  uriParams: {
+                    id: "001xx000003INVALID"
+                  }
+                }]'/>
+            </munit:set-event>
+
+            <munit-tools:mock-when processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref" whereValue="Salesforce_Config"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value='#[[]]'/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="get:\accounts\(id):salesforce-account-sapi-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[error.errorType.namespace]" is="#[MunitTools::equalTo('CUSTOM')]"/>
+            <munit-tools:assert-that expression="#[error.errorType.identifier]" is="#[MunitTools::equalTo('NOT_FOUND')]"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test POST /accounts with valid account data -->
+    <munit:test name="create-account-success" description="Test the POST /accounts flow with valid account data">
+        <munit:behavior>
+            <munit:set-event>
+                <munit:payload value='#[{
+                  "Name": "Test Corp Inc",
+                  "AccountNumber": "TEST-001",
+                  "Type": "Prospect",
+                  "Industry": "Manufacturing",
+                  "BillingAddress": {
+                    "street": "456 Business Ave",
+                    "city": "New York",
+                    "state": "NY",
+                    "postalCode": "10001",
+                    "country": "USA"
+                  },
+                  "Phone": "+1-555-987-6543",
+                  "Website": "https://www.testcorp.com"
+                }]'/>
+            </munit:set-event>
+
+            <!-- Mock the create operation -->
+            <munit-tools:mock-when processor="salesforce:create">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref" whereValue="Salesforce_Config"/>
+                    <munit-tools:with-attribute attributeName="type" whereValue="Account"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value='#[[
+                      {
+                        success: true,
+                        id: "001xx000003NEWACCOUNT"
+                      }
+                    ]]'/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+
+            <!-- Mock the query for created account -->
+            <munit-tools:mock-when processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref" whereValue="Salesforce_Config"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value='#[[
+                      {
+                        Id: "001xx000003NEWACCOUNT",
+                        Name: "Test Corp Inc",
+                        AccountNumber: "TEST-001",
+                        Type: "Prospect",
+                        Industry: "Manufacturing",
+                        BillingStreet: "456 Business Ave",
+                        BillingCity: "New York",
+                        BillingState: "NY",
+                        BillingPostalCode: "10001",
+                        BillingCountry: "USA",
+                        ShippingStreet: null,
+                        ShippingCity: null,
+                        ShippingState: null,
+                        ShippingPostalCode: null,
+                        ShippingCountry: null,
+                        Phone: "+1-555-987-6543",
+                        Website: "https://www.testcorp.com",
+                        OwnerId: "0053000001A1B2C3",
+                        CreatedDate: "2024-03-13T19:15:00",
+                        LastModifiedDate: "2024-03-13T19:15:00"
+                      }
+                    ]]'/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="post:\accounts:application\json:salesforce-account-sapi-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload]" is="#[MunitTools::notNullValue()]"/>
+            <munit-tools:assert-equals actual="#[payload.Id]" expected="001xx000003NEWACCOUNT"/>
+            <munit-tools:assert-equals actual="#[payload.Name]" expected="Test Corp Inc"/>
+            <munit-tools:assert-equals actual="#[payload.BillingAddress.city]" expected="New York"/>
+            <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo(201)]"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test PATCH /accounts/{id} with valid update data -->
+    <munit:test name="update-account-success" description="Test the PATCH /accounts/{id} flow with valid update data">
+        <munit:behavior>
+            <munit:set-event>
+                <munit:payload value='#[{
+                  "Name": "Updated Corp Name",
+                  "Phone": "+1-555-123-9999",
+                  "Website": "https://www.updated.com",
+                  "Industry": "Technology"
+                }]'/>
+                <munit:attributes value='#[{
+                  uriParams: {
+                    id: "001xx000003DGbTAAW"
+                  }
+                }]'/>
+            </munit:set-event>
+
+            <!-- Mock check account exists query -->
+            <munit-tools:mock-when processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Check Account Exists"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value='#[[
+                      {
+                        Id: "001xx000003DGbTAAW"
+                      }
+                    ]]'/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+
+            <!-- Mock the update operation -->
+            <munit-tools:mock-when processor="salesforce:update">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="config-ref" whereValue="Salesforce_Config"/>
+                    <munit-tools:with-attribute attributeName="type" whereValue="Account"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value='#[[
+                      {
+                        success: true,
+                        id: "001xx000003DGbTAAW"
+                      }
+                    ]]'/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+
+            <!-- Mock the query for updated account -->
+            <munit-tools:mock-when processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Query Updated Account"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value='#[[
+                      {
+                        Id: "001xx000003DGbTAAW",
+                        Name: "Updated Corp Name",
+                        AccountNumber: "ACC-001",
+                        Type: "Customer - Direct",
+                        Industry: "Technology",
+                        BillingStreet: "123 Main St",
+                        BillingCity: "San Francisco",
+                        BillingState: "CA",
+                        BillingPostalCode: "94105",
+                        BillingCountry: "USA",
+                        ShippingStreet: null,
+                        ShippingCity: null,
+                        ShippingState: null,
+                        ShippingPostalCode: null,
+                        ShippingCountry: null,
+                        Phone: "+1-555-123-9999",
+                        Website: "https://www.updated.com",
+                        OwnerId: "0053000001A1B2C3",
+                        CreatedDate: "2024-01-15T10:30:00",
+                        LastModifiedDate: "2024-03-13T19:20:00"
+                      }
+                    ]]'/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="patch:\accounts\(id):application\json:salesforce-account-sapi-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload]" is="#[MunitTools::notNullValue()]"/>
+            <munit-tools:assert-equals actual="#[payload.Id]" expected="001xx000003DGbTAAW"/>
+            <munit-tools:assert-equals actual="#[payload.Name]" expected="Updated Corp Name"/>
+            <munit-tools:assert-equals actual="#[payload.Phone]" expected="+1-555-123-9999"/>
+            <munit-tools:assert-equals actual="#[payload.Website]" expected="https://www.updated.com"/>
+        </munit:validation>
+    </munit:test>
+
+    <!-- Test GET /health with successful connection -->
+    <munit:test name="health-check-success" description="Test the GET /health flow with successful Salesforce connection">
+        <munit:behavior>
+            <munit:set-event>
+                <munit:payload value="#[[]]"/>
+            </munit:set-event>
+
+            <munit-tools:mock-when processor="salesforce:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name" whereValue="Test Query"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value='#[[
+                      {
+                        Id: "001xx000003DGbTAAW"
+                      }
+                    ]]'/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="get:\health:salesforce-account-sapi-config"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload]" is="#[MunitTools::notNullValue()]"/>
+            <munit-tools:assert-equals actual="#[payload.status]" expected="UP"/>
+            <munit-tools:assert-equals actual="#[payload.salesforceConnection]" expected="CONNECTED"/>
+        </munit:validation>
+    </munit:test>
+
+</mule>

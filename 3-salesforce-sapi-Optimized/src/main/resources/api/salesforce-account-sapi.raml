@@ -1,0 +1,311 @@
+#%RAML 1.0
+title: Salesforce Account SAPI
+version: v1.0.0
+description: System API for Salesforce Account Object operations following API-led connectivity approach
+baseUri: https://api.mulesoft.com/salesforce-account-sapi/v1.0.0
+
+mediaType: application/json
+
+types:
+  Address:
+    type: object
+    properties:
+      street?: string
+      city?: string
+      state?: string
+      postalCode?: string
+      country?: string
+
+  Account:
+    type: object
+    properties:
+      Id?: string
+      Name: string
+      AccountNumber?: string
+      Type?: 
+        type: string
+        enum: [Prospect, Customer - Direct, Customer - Channel, Channel Partner/Reseller, Installation Partner, Technology Partner, Other]
+      Industry?: 
+        type: string
+        enum: [Agriculture, Apparel, Banking, Biotechnology, Chemicals, Communications, Construction, Consulting, Education, Electronics, Energy, Engineering, Entertainment, Environmental, Finance, Food & Beverage, Government, Healthcare, Hospitality, Insurance, Machinery, Manufacturing, Media, Not For Profit, Other, Recreation, Retail, Shipping, Technology, Telecommunications, Transportation, Utilities]
+      BillingAddress?: Address
+      ShippingAddress?: Address  
+      Phone?: string
+      Website?: string
+      OwnerId?: string
+      CreatedDate?: datetime-only
+      LastModifiedDate?: datetime-only
+      
+  AccountRequest:
+    type: object
+    properties:
+      Name: string
+      AccountNumber?: string
+      Type?: string
+      Industry?: string
+      BillingAddress?: Address
+      ShippingAddress?: Address
+      Phone?: string
+      Website?: string
+      
+  ErrorResponse:
+    type: object
+    properties:
+      code: string
+      message: string
+      timestamp: datetime
+      correlationId?: string
+
+/accounts:
+  displayName: Accounts Collection
+  get:
+    displayName: Retrieve Accounts
+    description: Retrieve a list of Account records from Salesforce
+    queryParameters:
+      limit?:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+        description: Maximum number of accounts to return
+      offset?:
+        type: integer
+        minimum: 0
+        default: 0
+        description: Number of accounts to skip
+      type?:
+        type: string
+        description: Filter accounts by type
+      industry?:
+        type: string
+        description: Filter accounts by industry
+    responses:
+      200:
+        description: Successfully retrieved accounts
+        body:
+          application/json:
+            type: Account[]
+            example: |
+              [
+                {
+                  "Id": "0013000001A1B2C3D4",
+                  "Name": "Acme Corporation",
+                  "AccountNumber": "ACC-001",
+                  "Type": "Customer - Direct",
+                  "Industry": "Technology",
+                  "BillingAddress": {
+                    "street": "123 Main St",
+                    "city": "San Francisco",
+                    "state": "CA",
+                    "postalCode": "94105",
+                    "country": "USA"
+                  },
+                  "Phone": "+1-555-123-4567",
+                  "Website": "https://www.acme.com",
+                  "OwnerId": "0053000001A1B2C3",
+                  "CreatedDate": "2024-01-15T10:30:00",
+                  "LastModifiedDate": "2024-02-20T14:45:00"
+                }
+              ]
+      400:
+        description: Bad request - Invalid query parameters
+        body:
+          application/json:
+            type: ErrorResponse
+      500:
+        description: Internal server error
+        body:
+          application/json:
+            type: ErrorResponse
+            
+  post:
+    displayName: Create Account
+    description: Create a new Account record in Salesforce
+    body:
+      application/json:
+        type: AccountRequest
+        example: |
+          {
+            "Name": "New Corp Inc",
+            "AccountNumber": "ACC-002",
+            "Type": "Prospect",
+            "Industry": "Manufacturing",
+            "BillingAddress": {
+              "street": "456 Business Ave",
+              "city": "New York",
+              "state": "NY",
+              "postalCode": "10001",
+              "country": "USA"
+            },
+            "Phone": "+1-555-987-6543",
+            "Website": "https://www.newcorp.com"
+          }
+    responses:
+      201:
+        description: Account created successfully
+        body:
+          application/json:
+            type: Account
+            example: |
+              {
+                "Id": "0013000001A2B3C4D5",
+                "Name": "New Corp Inc",
+                "AccountNumber": "ACC-002",
+                "Type": "Prospect",
+                "Industry": "Manufacturing",
+                "BillingAddress": {
+                  "street": "456 Business Ave",
+                  "city": "New York",
+                  "state": "NY",
+                  "postalCode": "10001",
+                  "country": "USA"
+                },
+                "Phone": "+1-555-987-6543",
+                "Website": "https://www.newcorp.com",
+                "OwnerId": "0053000001A1B2C3",
+                "CreatedDate": "2024-03-13T19:15:00",
+                "LastModifiedDate": "2024-03-13T19:15:00"
+              }
+      400:
+        description: Bad request - Invalid account data
+        body:
+          application/json:
+            type: ErrorResponse
+      500:
+        description: Internal server error
+        body:
+          application/json:
+            type: ErrorResponse
+
+  /{id}:
+    displayName: Individual Account
+    uriParameters:
+      id:
+        type: string
+        description: Salesforce Account ID
+        pattern: ^[a-zA-Z0-9]{15}$|^[a-zA-Z0-9]{18}$
+        example: "0013000001A1B2C3D4"
+        
+    get:
+      displayName: Retrieve Account by ID
+      description: Retrieve a specific Account record by its Salesforce ID
+      responses:
+        200:
+          description: Successfully retrieved account
+          body:
+            application/json:
+              type: Account
+              example: |
+                {
+                  "Id": "0013000001A1B2C3D4",
+                  "Name": "Acme Corporation",
+                  "AccountNumber": "ACC-001",
+                  "Type": "Customer - Direct",
+                  "Industry": "Technology",
+                  "BillingAddress": {
+                    "street": "123 Main St",
+                    "city": "San Francisco",
+                    "state": "CA",
+                    "postalCode": "94105",
+                    "country": "USA"
+                  },
+                  "ShippingAddress": {
+                    "street": "123 Main St",
+                    "city": "San Francisco",
+                    "state": "CA",
+                    "postalCode": "94105",
+                    "country": "USA"
+                  },
+                  "Phone": "+1-555-123-4567",
+                  "Website": "https://www.acme.com",
+                  "OwnerId": "0053000001A1B2C3",
+                  "CreatedDate": "2024-01-15T10:30:00",
+                  "LastModifiedDate": "2024-02-20T14:45:00"
+                }
+        404:
+          description: Account not found
+          body:
+            application/json:
+              type: ErrorResponse
+        500:
+          description: Internal server error
+          body:
+            application/json:
+              type: ErrorResponse
+              
+    patch:
+      displayName: Update Account
+      description: Update an existing Account record in Salesforce
+      body:
+        application/json:
+          type: AccountRequest
+          example: |
+            {
+              "Name": "Acme Corporation Updated",
+              "Phone": "+1-555-123-9999",
+              "Website": "https://www.acme-updated.com",
+              "Industry": "Software"
+            }
+      responses:
+        200:
+          description: Account updated successfully
+          body:
+            application/json:
+              type: Account
+              example: |
+                {
+                  "Id": "0013000001A1B2C3D4",
+                  "Name": "Acme Corporation Updated",
+                  "AccountNumber": "ACC-001",
+                  "Type": "Customer - Direct",
+                  "Industry": "Technology",
+                  "BillingAddress": {
+                    "street": "123 Main St",
+                    "city": "San Francisco",
+                    "state": "CA",
+                    "postalCode": "94105",
+                    "country": "USA"
+                  },
+                  "Phone": "+1-555-123-9999",
+                  "Website": "https://www.acme-updated.com",
+                  "OwnerId": "0053000001A1B2C3",
+                  "CreatedDate": "2024-01-15T10:30:00",
+                  "LastModifiedDate": "2024-03-13T19:20:00"
+                }
+        400:
+          description: Bad request - Invalid account data
+          body:
+            application/json:
+              type: ErrorResponse
+        404:
+          description: Account not found
+          body:
+            application/json:
+              type: ErrorResponse
+        500:
+          description: Internal server error
+          body:
+            application/json:
+              type: ErrorResponse
+
+/health:
+  displayName: Health Check
+  get:
+    displayName: API Health Check
+    description: Check the health status of the API and Salesforce connectivity
+    responses:
+      200:
+        description: API is healthy
+        body:
+          application/json:
+            example: |
+              {
+                "status": "UP",
+                "timestamp": "2024-03-13T19:15:00Z",
+                "salesforceConnection": "CONNECTED"
+              }
+      503:
+        description: Service unavailable
+        body:
+          application/json:
+            type: ErrorResponse
